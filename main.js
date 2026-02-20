@@ -17,9 +17,9 @@ let walkStartTime = null;
 let walkTimerInterval = null;
 let currentProfile = null;
 let currentIntensity = 1;
-let generatedRoutes = []; // 5つのルートを保持
+let generatedRoutes = [];
 let currentRouteIndex = 0;
-let routeLayers = []; // 地図上のレイヤー（Polylines）
+let routeLayers = [];
 
 // --- アプリ初期化 ---
 document.addEventListener('DOMContentLoaded', () => {
@@ -69,15 +69,12 @@ function setupUI() {
         });
     }
 
-    // 設定画面
     document.getElementById('btn-settings').addEventListener('click', toggleSettings);
     document.getElementById('btn-save-settings').addEventListener('click', saveSettings);
-
     document.getElementById('btn-generate-route').addEventListener('click', startWalkingFlow);
     document.getElementById('btn-start-walk').addEventListener('click', beginRealtimeTracking);
     document.getElementById('btn-stop-walk').addEventListener('click', stopWalkingFlow);
 
-    // ルート切り替えタブ
     const tabs = document.querySelectorAll('.tab-btn');
     tabs.forEach(tab => {
         tab.addEventListener('click', (e) => {
@@ -90,12 +87,10 @@ function setupUI() {
     if (savedKey) document.getElementById('gmaps-api-key').value = savedKey;
 }
 
-// --- 設定/画面制御 ---
 function toggleSettings() {
     const screens = ['stats-container', 'action-menu', 'history-container'];
     const settings = document.getElementById('settings-screen');
     const isHidden = settings.classList.contains('hidden');
-
     settings.classList.toggle('hidden');
     screens.forEach(id => {
         const el = document.getElementById(id) || document.querySelector('.' + id);
@@ -119,30 +114,25 @@ function showMainScreen(profile) {
     updateHistoryUI();
 }
 
-// --- 散歩ルート生成 ---
 async function startWalkingFlow() {
     const durationInput = document.getElementById('walk-duration');
     const duration = parseInt(durationInput.value) || 30;
     currentIntensity = parseInt(document.getElementById('walk-intensity').value) || 1;
-
     document.getElementById('map-container').classList.remove('hidden');
-
     if (!mapInstance) {
         mapInstance = L.map('map').setView([35.6812, 139.7671], 15);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: 'OSM' }).addTo(mapInstance);
     }
-
-    // 既存レイヤー削除
     routeLayers.forEach(l => mapInstance.removeLayer(l));
     routeLayers = [];
     generatedRoutes = [];
 
-    const targetDist = (duration / 15);
+    // 目標距離: 時速4kmで計算 (30分 -> 2km)
+    const targetDist = (duration / 60) * 4;
     await generate5Routes(targetDist);
 
     document.getElementById('route-tabs').classList.remove('hidden');
-    switchRoute(0); // 最初のルートを表示
-
+    switchRoute(0);
     window.scrollTo({ top: document.getElementById('map-container').offsetTop, behavior: 'smooth' });
 }
 
@@ -154,26 +144,22 @@ async function generate5Routes(distKm) {
             mapInstance.setView(start, 15);
             L.marker(start).addTo(mapInstance).bindPopup("出発地");
 
-            // 5パターンの経由地オフセット (北, 東, 南, 西, 北東)
-            const offsets = [
-                [0.005, 0],    // 北
-                [0, 0.005],    // 東
-                [-0.005, 0],   // 南
-                [0, -0.005],   // 西
-                [0.004, 0.004] // 北東
-            ];
-
-            const d = distKm / 40; // 距離感の調整
+            const kmToDeg = 1 / 111.32;
+            const sideLen = (distKm / 2.5) * kmToDeg; // 三辺合計が目標に近い調整
 
             for (let i = 0; i < 5; i++) {
-                const off = offsets[i];
-                const waypoints = [
-                    start,
-                    [latitude + off[0] * d, longitude + off[1] * d],
-                    [latitude + off[0] * d * 0.5, longitude - off[1] * d * 0.5], // 少し捻る
-                    start
+                const baseAngle = (i * 72 * Math.PI) / 180;
+                const p1 = [
+                    latitude + sideLen * Math.cos(baseAngle),
+                    longitude + (sideLen * Math.sin(baseAngle)) / Math.cos(latitude * Math.PI / 180)
+                ];
+                const p2Angle = baseAngle + (Math.PI / 2.5); // 約72度ずらして三角形を作る
+                const p2 = [
+                    latitude + sideLen * Math.cos(p2Angle),
+                    longitude + (sideLen * Math.sin(p2Angle)) / Math.cos(latitude * Math.PI / 180)
                 ];
 
+                const waypoints = [start, p1, p2, start];
                 const coords = waypoints.map(w => `${w[1]},${w[0]}`).join(';');
                 const url = `https://router.project-osrm.org/route/v1/walking/${coords}?overview=full&geometries=geojson`;
 
@@ -183,38 +169,32 @@ async function generate5Routes(distKm) {
                     if (data.routes && data.routes[0]) {
                         generatedRoutes[i] = data.routes[0].geometry;
                     }
-                } catch (e) { console.error(e); }
+                } catch (e) {
+                    generatedRoutes[i] = { type: "LineString", coordinates: waypoints.map(w => [w[1], w[0]]) };
+                }
             }
             resolve();
-        }, () => { alert("位置情報を許可してください"); resolve(); });
+        }, () => { alert("位置位置情報を許可してください"); resolve(); });
     });
 }
 
 function switchRoute(index) {
     if (!generatedRoutes[index]) return;
-
-    // 他のルートを消して選択したものを表示
     routeLayers.forEach(l => mapInstance.removeLayer(l));
     routeLayers = [];
-
     const layer = L.geoJSON(generatedRoutes[index], { color: '#ffb347', weight: 6 }).addTo(mapInstance);
     routeLayers.push(layer);
     mapInstance.fitBounds(layer.getBounds());
-
-    // タブの見た目更新
     const tabs = document.querySelectorAll('.tab-btn');
-    tabs.forEach((t, i) => {
-        t.classList.toggle('active', i === index);
-    });
+    tabs.forEach((t, i) => t.classList.toggle('active', i === index));
     currentRouteIndex = index;
 }
 
-// --- 計測ロジック ---
 function beginRealtimeTracking() {
     walkStartTime = new Date();
     document.getElementById('btn-start-walk').classList.add('hidden');
     document.getElementById('btn-stop-walk').classList.remove('hidden');
-    document.getElementById('route-tabs').classList.add('hidden'); // 計測中は切り替え不可
+    document.getElementById('route-tabs').classList.add('hidden');
     walkTimerInterval = setInterval(() => {
         const diff = new Date() - walkStartTime;
         const h = Math.floor(diff / 3600000).toString().padStart(2, '0');
@@ -229,7 +209,6 @@ function stopWalkingFlow() {
     clearInterval(walkTimerInterval);
     const durationMins = (new Date() - walkStartTime) / 60000;
     const finalKcal = calculateBurnedKcal(durationMins, currentIntensity);
-
     const history = JSON.parse(localStorage.getItem('walk_history') || '[]');
     history.unshift({
         date: new Date().toLocaleDateString('ja-JP', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
@@ -237,9 +216,7 @@ function stopWalkingFlow() {
         kcal: finalKcal
     });
     localStorage.setItem('walk_history', JSON.stringify(history));
-
     alert(`${Math.round(durationMins)}分間の散歩完了！\n消費カロリー: ${finalKcal} kcal`);
-
     document.getElementById('map-container').classList.add('hidden');
     document.getElementById('btn-start-walk').classList.remove('hidden');
     document.getElementById('btn-stop-walk').classList.add('hidden');
