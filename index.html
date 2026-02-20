@@ -66,8 +66,8 @@
                     <span class="stat-value"><span id="target-calories">--</span> <small>kcal</small></span>
                 </div>
                 <div class="stat-card">
-                    <span class="stat-label">歩いた距離</span>
-                    <span class="stat-value"><span id="current-distance">0.0</span> <small>km</small></span>
+                    <span class="stat-label">合計消費</span>
+                    <span class="stat-value"><span id="total-burned">0</span> <small>kcal</small></span>
                 </div>
             </div>
 
@@ -88,8 +88,23 @@
 
             <!-- マップ表示エリア -->
             <div id="map-container" class="hidden">
+                <div class="timer-display">
+                    <p id="walk-timer">00:00:00</p>
+                    <p><span id="live-calories">0</span> kcal 燃焼中!</p>
+                </div>
                 <div id="map"></div>
                 <button id="btn-start-walk" class="btn-primary">散歩スタート！</button>
+                <button id="btn-stop-walk" class="btn-primary hidden"
+                    style="background: var(--accent-color);">散歩終了！</button>
+            </div>
+
+            <!-- 履歴セクション -->
+            <div id="history-container">
+                <h3>これまでの散歩</h3>
+                <div id="history-list">
+                    <!-- JSで動的に追加 -->
+                    <p class="empty-msg">まだ散歩の記録がないよ</p>
+                </div>
             </div>
 
             <div class="footer-note">
@@ -97,7 +112,7 @@
             </div>
         </section>
     </div>
-    <script type="module" src="app.js"></script>
+    <script src="main.js"></script>
 </body>
 
 </html>
