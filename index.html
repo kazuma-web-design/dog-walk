@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="ja">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,8 +8,11 @@
     <link rel="stylesheet" href="style.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Kiwi+Maru:wght@400;500&family=Zen+Maru+Gothic:wght@400;700&display=swap" rel="stylesheet">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Kiwi+Maru:wght@400;500&family=Zen+Maru+Gothic:wght@400;700&display=swap"
+        rel="stylesheet">
 </head>
+
 <body>
     <div id="app">
         <!-- 登録画面 -->
@@ -17,7 +21,7 @@
                 <h1>わんこプロフィール登録</h1>
                 <p>まずはあなたの愛犬について教えてね！</p>
             </header>
-            
+
             <form id="profile-form">
                 <div class="input-group">
                     <label for="dog-name">おなまえ</label>
@@ -46,11 +50,45 @@
             </form>
         </section>
 
-        <!-- メイン画面（初期は非表示） -->
+        <!-- メイン画面 -->
         <section id="main-screen" class="screen hidden">
-            <!-- 後のステップで実装 -->
+            <header>
+                <h1 id="display-dog-name">ポチ</h1>
+                <p id="display-dog-info">柴犬 / 5.0kg</p>
+            </header>
+
+            <div class="stats-container">
+                <div class="stat-card">
+                    <span class="stat-label">今日の目標</span>
+                    <span class="stat-value"><span id="target-calories">--</span> <small>kcal</small></span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-label">歩いた距離</span>
+                    <span class="stat-value"><span id="current-distance">0.0</span> <small>km</small></span>
+                </div>
+            </div>
+
+            <div class="action-menu">
+                <h2>散歩に出かけよう！</h2>
+                <div class="input-group">
+                    <label for="walk-duration">散歩の時間 (分)</label>
+                    <input type="number" id="walk-duration" placeholder="30">
+                </div>
+                <div class="input-group">
+                    <label for="walk-intensity">散歩のつよさ</label>
+                    <select id="walk-intensity">
+                        <!-- breeds.js から動的に追加 -->
+                    </select>
+                </div>
+                <button id="btn-generate-route" class="btn-primary">散歩ルートを提案！</button>
+            </div>
+
+            <div class="footer-note">
+                <p>※カロリー計算は目安です</p>
+            </div>
         </section>
     </div>
     <script type="module" src="app.js"></script>
 </body>
+
 </html>
