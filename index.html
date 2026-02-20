@@ -58,9 +58,25 @@
         <!-- メイン画面 -->
         <section id="main-screen" class="screen hidden">
             <header>
-                <h1 id="display-dog-name">ポチ</h1>
+                <div class="header-top">
+                    <h1 id="display-dog-name">ポチ</h1>
+                    <button id="btn-settings" class="icon-btn">⚙️</button>
+                </div>
                 <p id="display-dog-info">柴犬 / 5.0kg</p>
             </header>
+
+            <!-- 設定セクション (初期は非表示) -->
+            <div id="settings-screen" class="hidden">
+                <div class="action-menu">
+                    <h3>システム設定</h3>
+                    <div class="input-group">
+                        <label for="gmaps-api-key">Google Maps API Key (任意)</label>
+                        <input type="password" id="gmaps-api-key" placeholder="AIza...">
+                        <p class="note">※入力するとGoogle Mapsに切り替わります</p>
+                    </div>
+                    <button id="btn-save-settings" class="btn-primary">保存して戻る</button>
+                </div>
+            </div>
 
             <div class="stats-container">
                 <div class="stat-card">
