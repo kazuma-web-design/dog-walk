@@ -160,6 +160,22 @@ select:focus {
     margin-top: 20px;
 }
 
+/* マップのスタイル */
+#map-container {
+    margin-top: 20px;
+    animation: fadeIn 0.5s ease forwards;
+}
+
+#map {
+    height: 250px;
+    width: 100%;
+    border-radius: 20px;
+    border: 2px solid #ffe0b2;
+    margin-bottom: 15px;
+    z-index: 1;
+    /* Leafletのコントロールがはみ出ないように */
+}
+
 .hidden {
     display: none;
 }
