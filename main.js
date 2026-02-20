@@ -17,6 +17,9 @@ let walkStartTime = null;
 let walkTimerInterval = null;
 let currentProfile = null;
 let currentIntensity = 1;
+let generatedRoutes = []; // 5つのルートを保持
+let currentRouteIndex = 0;
+let routeLayers = []; // 地図上のレイヤー（Polylines）
 
 // --- アプリ初期化 ---
 document.addEventListener('DOMContentLoaded', () => {
@@ -66,7 +69,7 @@ function setupUI() {
         });
     }
 
-    // 設定画面の制御
+    // 設定画面
     document.getElementById('btn-settings').addEventListener('click', toggleSettings);
     document.getElementById('btn-save-settings').addEventListener('click', saveSettings);
 
@@ -74,49 +77,49 @@ function setupUI() {
     document.getElementById('btn-start-walk').addEventListener('click', beginRealtimeTracking);
     document.getElementById('btn-stop-walk').addEventListener('click', stopWalkingFlow);
 
-    // Google Maps APIキーの読み込み
+    // ルート切り替えタブ
+    const tabs = document.querySelectorAll('.tab-btn');
+    tabs.forEach(tab => {
+        tab.addEventListener('click', (e) => {
+            const index = parseInt(e.target.dataset.route);
+            switchRoute(index);
+        });
+    });
+
     const savedKey = localStorage.getItem('gmaps_api_key');
     if (savedKey) document.getElementById('gmaps-api-key').value = savedKey;
 }
 
-// --- 設定画面 ---
+// --- 設定/画面制御 ---
 function toggleSettings() {
+    const screens = ['stats-container', 'action-menu', 'history-container'];
     const settings = document.getElementById('settings-screen');
-    const stats = document.querySelector('.stats-container');
-    const menu = document.querySelector('.action-menu');
-    const hist = document.getElementById('history-container');
-
     const isHidden = settings.classList.contains('hidden');
 
     settings.classList.toggle('hidden');
-    stats.style.display = isHidden ? 'none' : 'grid';
-    menu.style.display = isHidden ? 'none' : 'block';
-    hist.style.display = isHidden ? 'none' : 'block';
+    screens.forEach(id => {
+        const el = document.getElementById(id) || document.querySelector('.' + id);
+        if (el) el.style.display = isHidden ? 'none' : (id === 'stats-container' ? 'grid' : 'block');
+    });
 }
 
 function saveSettings() {
-    const key = document.getElementById('gmaps-api-key').value;
-    localStorage.setItem('gmaps_api_key', key);
-    alert("設定を保存しました。");
+    localStorage.setItem('gmaps_api_key', document.getElementById('gmaps-api-key').value);
+    alert("保存しました。");
     toggleSettings();
 }
 
-// --- メイン画面制御 ---
 function showMainScreen(profile) {
     document.getElementById('registration-screen').classList.add('hidden');
     document.getElementById('main-screen').classList.remove('hidden');
-
     const breed = breeds.find(b => b.id === profile.breedId);
     document.getElementById('display-dog-name').textContent = `${profile.name}ちゃん`;
     document.getElementById('display-dog-info').textContent = `${breed ? breed.name : 'わんこ'} / ${profile.weight}kg`;
-
-    const targetKcal = Math.round(profile.weight * 15);
-    document.getElementById('target-calories').textContent = targetKcal;
-
+    document.getElementById('target-calories').textContent = Math.round(profile.weight * 15);
     updateHistoryUI();
 }
 
-// --- 散歩フロー ---
+// --- 散歩ルート生成 ---
 async function startWalkingFlow() {
     const durationInput = document.getElementById('walk-duration');
     const duration = parseInt(durationInput.value) || 30;
@@ -126,115 +129,120 @@ async function startWalkingFlow() {
 
     if (!mapInstance) {
         mapInstance = L.map('map').setView([35.6812, 139.7671], 15);
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '&copy; OpenStreetMap'
-        }).addTo(mapInstance);
-    } else {
-        // Clear previous layers
-        mapInstance.eachLayer((layer) => {
-            if (layer instanceof L.Polyline || layer instanceof L.Marker) {
-                mapInstance.removeLayer(layer);
-            }
-        });
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(mapInstance);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: 'OSM' }).addTo(mapInstance);
     }
 
-    // 実路ベースのルート生成 (距離は約 duration/15 km)
-    const targetDistanceKm = (duration / 15);
-    await generateRealRoute(targetDistanceKm);
+    // 既存レイヤー削除
+    routeLayers.forEach(l => mapInstance.removeLayer(l));
+    routeLayers = [];
+    generatedRoutes = [];
+
+    const targetDist = (duration / 15);
+    await generate5Routes(targetDist);
+
+    document.getElementById('route-tabs').classList.remove('hidden');
+    switchRoute(0); // 最初のルートを表示
 
     window.scrollTo({ top: document.getElementById('map-container').offsetTop, behavior: 'smooth' });
 }
 
-// OSMRを利用した実路ベースのループルート生成
-async function generateRealRoute(targetDistanceKm) {
+async function generate5Routes(distKm) {
     return new Promise((resolve) => {
         navigator.geolocation.getCurrentPosition(async (pos) => {
             const { latitude, longitude } = pos.coords;
-            const startPoint = [latitude, longitude];
-            mapInstance.setView(startPoint, 16);
-            L.marker(startPoint).addTo(mapInstance).bindPopup("ここからスタート！").openPopup();
+            const start = [latitude, longitude];
+            mapInstance.setView(start, 15);
+            L.marker(start).addTo(mapInstance).bindPopup("出発地");
 
-            // ループを形成するための経由地を計算 (スタート地点から距離 targetDistance/4 程度の場所を3点)
-            const waypoints = [startPoint];
-            const dist = targetDistanceKm / 400; // ざっくりとした度数への変換
+            // 5パターンの経由地オフセット (北, 東, 南, 西, 北東)
+            const offsets = [
+                [0.005, 0],    // 北
+                [0, 0.005],    // 東
+                [-0.005, 0],   // 南
+                [0, -0.005],   // 西
+                [0.004, 0.004] // 北東
+            ];
 
-            // 三角形の形に経由地を作成
-            waypoints.push([latitude + dist, longitude + dist]);
-            waypoints.push([latitude + dist, longitude - dist]);
-            waypoints.push(startPoint); // 戻ってくる
+            const d = distKm / 40; // 距離感の調整
 
-            // OSRM API で道路に沿ったルートを取得
-            const coordsStr = waypoints.map(w => `${w[1]},${w[0]}`).join(';');
-            const url = `https://router.project-osrm.org/route/v1/walking/${coordsStr}?overview=full&geometries=geojson`;
+            for (let i = 0; i < 5; i++) {
+                const off = offsets[i];
+                const waypoints = [
+                    start,
+                    [latitude + off[0] * d, longitude + off[1] * d],
+                    [latitude + off[0] * d * 0.5, longitude - off[1] * d * 0.5], // 少し捻る
+                    start
+                ];
 
-            try {
-                const response = await fetch(url);
-                const data = await response.json();
-                if (data.routes && data.routes[0]) {
-                    const route = data.routes[0].geometry;
-                    L.geoJSON(route, { color: '#ffb347', weight: 5 }).addTo(mapInstance);
-                }
-            } catch (e) {
-                console.error("OSRM Error:", e);
-                // 失敗時は円形で代用
-                simulateCircleRoute(latitude, longitude, targetDistanceKm);
+                const coords = waypoints.map(w => `${w[1]},${w[0]}`).join(';');
+                const url = `https://router.project-osrm.org/route/v1/walking/${coords}?overview=full&geometries=geojson`;
+
+                try {
+                    const res = await fetch(url);
+                    const data = await res.json();
+                    if (data.routes && data.routes[0]) {
+                        generatedRoutes[i] = data.routes[0].geometry;
+                    }
+                } catch (e) { console.error(e); }
             }
             resolve();
-        }, () => {
-            alert("位置情報を許可してね！");
-            resolve();
-        });
+        }, () => { alert("位置情報を許可してください"); resolve(); });
     });
 }
 
-function simulateCircleRoute(lat, lng, dist) {
-    const points = [];
-    const radius = (dist / (2 * Math.PI)) * 0.01;
-    for (let i = 0; i <= 360; i += 45) {
-        const angle = (i * Math.PI) / 180;
-        points.push([lat + radius * Math.cos(angle), lng + radius * Math.sin(angle)]);
-    }
-    L.polyline(points, { color: '#ffb347', weight: 5 }).addTo(mapInstance);
+function switchRoute(index) {
+    if (!generatedRoutes[index]) return;
+
+    // 他のルートを消して選択したものを表示
+    routeLayers.forEach(l => mapInstance.removeLayer(l));
+    routeLayers = [];
+
+    const layer = L.geoJSON(generatedRoutes[index], { color: '#ffb347', weight: 6 }).addTo(mapInstance);
+    routeLayers.push(layer);
+    mapInstance.fitBounds(layer.getBounds());
+
+    // タブの見た目更新
+    const tabs = document.querySelectorAll('.tab-btn');
+    tabs.forEach((t, i) => {
+        t.classList.toggle('active', i === index);
+    });
+    currentRouteIndex = index;
 }
 
+// --- 計測ロジック ---
 function beginRealtimeTracking() {
     walkStartTime = new Date();
     document.getElementById('btn-start-walk').classList.add('hidden');
     document.getElementById('btn-stop-walk').classList.remove('hidden');
-    walkTimerInterval = setInterval(updateTimer, 1000);
-}
-
-function updateTimer() {
-    const now = new Date();
-    const diff = now - walkStartTime;
-    const h = Math.floor(diff / 3600000).toString().padStart(2, '0');
-    const m = Math.floor((diff % 3600000) / 60000).toString().padStart(2, '0');
-    const s = Math.floor((diff % 60000) / 1000).toString().padStart(2, '0');
-    document.getElementById('walk-timer').textContent = `${h}:${m}:${s}`;
-    const burned = calculateBurnedKcal(diff / 60000, currentIntensity);
-    document.getElementById('live-calories').textContent = burned;
+    document.getElementById('route-tabs').classList.add('hidden'); // 計測中は切り替え不可
+    walkTimerInterval = setInterval(() => {
+        const diff = new Date() - walkStartTime;
+        const h = Math.floor(diff / 3600000).toString().padStart(2, '0');
+        const m = Math.floor((diff % 3600000) / 60000).toString().padStart(2, '0');
+        const s = Math.floor((diff % 60000) / 1000).toString().padStart(2, '0');
+        document.getElementById('walk-timer').textContent = `${h}:${m}:${s}`;
+        document.getElementById('live-calories').textContent = calculateBurnedKcal(diff / 60000, currentIntensity);
+    }, 1000);
 }
 
 function stopWalkingFlow() {
     clearInterval(walkTimerInterval);
-    const walkEndTime = new Date();
-    const durationMinutes = (walkEndTime - walkStartTime) / 60000;
-    const finalKcal = calculateBurnedKcal(durationMinutes, currentIntensity);
+    const durationMins = (new Date() - walkStartTime) / 60000;
+    const finalKcal = calculateBurnedKcal(durationMins, currentIntensity);
+
     const history = JSON.parse(localStorage.getItem('walk_history') || '[]');
-    const record = {
+    history.unshift({
         date: new Date().toLocaleDateString('ja-JP', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
-        duration: Math.round(durationMinutes),
+        duration: Math.round(durationMins),
         kcal: finalKcal
-    };
-    history.unshift(record);
+    });
     localStorage.setItem('walk_history', JSON.stringify(history));
-    alert(`${record.duration}分間の散歩完了！\n消費カロリー: ${finalKcal} kcal\nお疲れ様でした！`);
+
+    alert(`${Math.round(durationMins)}分間の散歩完了！\n消費カロリー: ${finalKcal} kcal`);
+
     document.getElementById('map-container').classList.add('hidden');
     document.getElementById('btn-start-walk').classList.remove('hidden');
     document.getElementById('btn-stop-walk').classList.add('hidden');
-    document.getElementById('walk-timer').textContent = '00:00:00';
-    document.getElementById('live-calories').textContent = '0';
     updateHistoryUI();
 }
 
@@ -242,26 +250,20 @@ function updateHistoryUI() {
     const history = JSON.parse(localStorage.getItem('walk_history') || '[]');
     const list = document.getElementById('history-list');
     let total = 0;
-    list.innerHTML = '';
-    if (history.length === 0) {
-        list.innerHTML = '<p class="empty-msg">まだ散歩の記録がないよ</p>';
-    } else {
-        history.forEach(item => {
-            total += item.kcal;
-            const card = document.createElement('div');
-            card.className = 'history-card';
-            card.innerHTML = `<div class="history-info"><p class="walk-date">${item.date}</p><p>${item.duration}分間の散歩</p></div><div class="history-kcal">${item.kcal} kcal</div>`;
-            list.appendChild(card);
-        });
-    }
+    list.innerHTML = history.length ? '' : '<p class="empty-msg">まだ散歩の記録がないよ</p>';
+    history.forEach(item => {
+        total += item.kcal;
+        const card = document.createElement('div');
+        card.className = 'history-card';
+        card.innerHTML = `<div class="history-info"><p class="walk-date">${item.date}</p><p>${item.duration}分間の散歩</p></div><div class="history-kcal">${item.kcal} kcal</div>`;
+        list.appendChild(card);
+    });
     document.getElementById('total-burned').textContent = total;
 }
 
-function calculateBurnedKcal(minutes, intensityLevel) {
+function calculateBurnedKcal(minutes, intensity) {
     if (!currentProfile) return 0;
     const breed = breeds.find(b => b.id === currentProfile.breedId);
-    const activity = activityLevels.find(a => a.level === intensityLevel);
-    if (!breed || !activity) return 0;
-    const hours = minutes / 60;
-    return Math.round(currentProfile.weight * hours * breed.calorieFactor * activity.multiplier * 3);
+    const activity = activityLevels.find(a => a.level === intensity);
+    return Math.round(currentProfile.weight * (minutes / 60) * breed.calorieFactor * activity.multiplier * 3);
 }
